@@ -1,0 +1,61 @@
+name: Update skills README
+
+on:
+  push:
+    paths:
+      - '**/SKILL.md'
+      - '.github/workflows/update-skills-readme.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update-readme:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Update skills table
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          root = Path('.')
+          rows = ['| Name | Description |', '| --- | --- |']
+          for skill_file in sorted(root.rglob('SKILL.md')):
+              text = skill_file.read_text()
+              match = re.match(r'^---\n(.*?)\n---', text, re.DOTALL)
+              if not match:
+                  continue
+              frontmatter = match.group(1)
+              name = re.search(r'^name:\s*(.+)$', frontmatter, re.MULTILINE)
+              description = re.search(r'^description:\s*(.+)$', frontmatter, re.MULTILINE)
+              if not name or not description:
+                  continue
+              sentence = description.group(1).strip().split('. ', 1)[0].rstrip('.') + '.'
+              rows.append(f'| [{name.group(1).strip()}]({skill_file.as_posix()}) | {sentence} |')
+
+          readme = root / 'README.md'
+          table = '\n'.join(rows)
+          start = '<!-- skills-table:start -->'
+          end = '<!-- skills-table:end -->'
+          content = readme.read_text() if readme.exists() else '# Design skills\n'
+          block = f'{start}\n{table}\n{end}'
+          if start in content and end in content:
+              content = re.sub(f'{re.escape(start)}.*?{re.escape(end)}', block, content, flags=re.DOTALL)
+          else:
+              content = content.rstrip() + f'\n\n{block}\n'
+          readme.write_text(content)
+          PY
+
+      - name: Commit updated README
+        run: |
+          git diff --quiet -- README.md || {
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add README.md
+            git commit -m "docs: update skills list"
+            git push
+          }
